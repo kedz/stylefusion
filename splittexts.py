@@ -35,18 +35,14 @@ def check_forward_connective(s):
         if check_match(tokens, c, i) and "," in tokens[i+len(c):]:
             j = i + len(c) + tokens[i+len(c):].index(",")
             return c, j
-        
 
-def apply_forward_connective(s, c,comma_idx):
-    prefix = s['tokens'][len(c):comma_idx]
-    suffix = s['tokens'][comma_idx+1:]
-    
-    prefix = "".join([x['before'] + x['originalText'] for x in prefix]).strip()
-    suffix = "".join([x['before'] + x['originalText'] for x in suffix]).strip()
-    prefix = prefix[0].upper() + prefix[1:] + "."
-    suffix = suffix[0].upper() + suffix[1:]
-
-    return ("forward connective", " ".join(c)), prefix, suffix
+def apply_forward_connective(s, fc, comma_idx):
+    prefix = clean_span(s, len(fc), comma_idx)
+    suffix = clean_span(s, comma_idx+1)
+    prefix = fix_terminal_punctuation(prefix)
+    prefix = fix_init_capital(prefix)
+    suffix = fix_init_capital(suffix)
+    return ("forward connective", " ".join(fc)), prefix, suffix
 
 def check_intrasentence_connective(s):
     tokens = [t['word'].lower() for t in s['tokens']]
@@ -57,16 +53,11 @@ def check_intrasentence_connective(s):
                 return c, i
      
 def apply_intrasentence_connective(s, con, con_idx):
-    prefix = "".join([x['before'] + x['originalText'] 
-                      for x in s['tokens'][:con_idx]])
-    prefix = prefix.strip()
-    prefix = prefix[0].upper() + prefix[1:] + "."
-
-    suffix = "".join([x['before'] + x['originalText']
-                      for x in s['tokens'][con_idx + len(con):]])
-    suffix = suffix.strip()
-    suffix = suffix[0].upper() + suffix[1:]
-
+    prefix = clean_span(s, 0, con_idx)
+    prefix = fix_terminal_punctuation(prefix)
+    prefix = fix_init_capital(prefix)
+    suffix = clean_span(s, con_idx + len(con))
+    suffix = fix_init_capital(suffix)
     return (("intra-sentence connective", " ".join(con)), prefix, suffix)
 
 def check_cataphora(s):
@@ -89,20 +80,20 @@ def check_cataphora(s):
         return (comma_idx,)
 
 def apply_cataphora(s, comma_idx):
-    suffix = "".join([x['before'] + x['originalText'] 
-                      for x in s["tokens"][comma_idx+1:]])
-    suffix = suffix.strip()
-    suffix = suffix[0].upper() + suffix[1:]
-
-    prefix = "".join([x['before'] + x['originalText'] 
-                      for x in s['tokens'][1:comma_idx]])
-    prefix = prefix.strip() + "."
     subj = s['tokens'][comma_idx + 1]['originalText']
+
+    # TODO handle irregular verbs 
     verb = (s['tokens'][0]['originalText'][:-3] + 'ed').lower()
-    prefix = f'{subj} {verb} {prefix}'
-    prefix = prefix[0].upper() + prefix[1:]
-        
-    return (('cataphora',), prefix, suffix)
+
+    cat_phrase = clean_span(s, 1, comma_idx)
+
+    sentA = f'{subj} {verb} {cat_phrase}'
+    sentA = fix_terminal_punctuation(sentA)
+    sentA = fix_init_capital(sentA)
+
+    sentB = clean_span(s, comma_idx + 1)
+    sentB = fix_init_capital(sentB)
+    return ('cataphora',), sentA, sentB
 
 def check_conjunction(s):
 
@@ -125,18 +116,12 @@ def check_conjunction(s):
                 return s['tokens'][i]['originalText'], i
 
 def apply_conjunction(s, conj, conj_idx):
-    prefix = ''.join([x['before'] + x['originalText'] 
-                      for x in s['tokens'][:conj_idx]])
-    prefix = prefix[0].upper() + prefix[1:]
-    if prefix[-1] == ',':
-        prefix = prefix[:-1]
-    prefix = prefix + "."
-
-    suffix = ''.join([x['before'] + x['originalText'] 
-                      for x in s['tokens'][conj_idx + 1:]])
-    suffix = suffix.strip()
-    suffix = suffix[0].upper() + suffix[1:]
-    return ("conjunction", conj), prefix, suffix
+    sentA = clean_span(s, 0, conj_idx)
+    sentA = fix_init_capital(sentA)
+    sentA = fix_terminal_punctuation(sentA)
+    sentB = clean_span(s, conj_idx + 1)
+    sentB = fix_init_capital(sentB)
+    return ("conjunction", conj), sentA, sentB
 
 def check_apposition(s):
     deps = sorted(s['basicDependencies'], key=lambda x: x['dependent'])
@@ -151,18 +136,14 @@ def check_apposition(s):
                             if deps[i+1]['dep'] in ['det', 'poss']:
                                 return i,j
 
-        
-
 def apply_apposition(s, start, stop):
-    
-
-    subj = ''.join([x['before'] + x['originalText'] for x in s['tokens'][:start]])
-    appos = ''.join([x['before'] + x['originalText'] for x in s['tokens'][start+1:stop]]).strip()
-    orig = ''.join([x['before'] + x['originalText'] for x in s['tokens'][stop+1:]]).strip()
-    prefix = subj + " " + orig
-    suffix = subj + " is " + appos + '.'
-    
-    return ("apposition",), prefix, suffix
+    subj = clean_span(s, 0, start)
+    appos = clean_span(s, start + 1, stop)
+    predicate = clean_span(s, stop + 1)
+    sentA = f'{subj} {predicate}'
+    sentB = f'{subj} is {appos}'
+    sentB = fix_terminal_punctuation(sentB)
+    return ("apposition",), sentA, sentB
 
 def check_relative_clause(s):
     n = len(s['tokens'])
@@ -176,13 +157,11 @@ def check_relative_clause(s):
 
 def apply_relative_clause(s, rp, i, j):
     subj = clean_span(s,0,i)
-    rphrase = clean_span(s, i + 2, j)
-    orig = clean_span(s, j+1, len(s['tokens']))
-
-    prefix = fix_terminal_punctuation(f'{subj} {rphrase}' )
-    suffix = f'{subj} {orig}'
-
-    return ('relative_clause', rp), prefix, suffix
+    rel_clause = clean_span(s, i + 2, j)
+    predicate = clean_span(s, j + 1)
+    sentA = fix_terminal_punctuation(f'{subj} {rel_clause}')
+    sentB = f'{subj} {predicate}'
+    return ('relative_clause', rp), sentA, sentB
 
 def fix_terminal_punctuation(x):
     if x[-1] in ",;":
@@ -190,7 +169,15 @@ def fix_terminal_punctuation(x):
     else:
         return x + '.'
 
-def clean_span(sent, i, j):
+def fix_init_capital(x):
+    if x[0].isupper():
+        return x
+    else:
+        return x[0].upper() + x[1:]
+
+def clean_span(sent, i, j=None):
+    if j is None:
+        j = len(sent['tokens'])
     toks = sent['tokens'][i:j]
     strings = [x['before'] + x['originalText'] for x in toks]
     return ''.join(strings).strip()
@@ -207,17 +194,16 @@ ORD_RULES = OrderedDict()
 for name, check, application in RULES:
     ORD_RULES[name] = {'check': check, 'apply': application}
 
-
 class SplitTexts:
     def __init__(self, port):
         self._cnlp = StanfordCoreNLP(f'http://localhost:{port}')
    
     def preprocess(self, text):
-        return self._cnlp.annotate(
-            text, properties={
-                'annotators': 'parse,lemma', 
-                'outputFormat': 'json'})
- 
+        properties = {
+            'annotators': 'parse,lemma', 
+            'outputFormat': 'json',
+        }
+        return self._cnlp.annotate(text, properties=properties)
 
     def apply_rules(self, text):
         data = self.preprocess(text)
@@ -234,9 +220,6 @@ class SplitTexts:
                     rule_matched = True
                     break
             if not rule_matched:
-                results.append(
-                    (None, ''.join([x['before'] + x['originalText'] for x in s['tokens']])))
+                results.append((None, clean_span(s, 0)))
 
         return results
-            
-
