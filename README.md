@@ -23,7 +23,4 @@ unzip stanford-corenlp-latest.zip
 `python scripts/demo.py`
 
 # TODO
- - verb phrase coordination
- - anaphora
  - inter-sentence discourse connectives
- - recursive application utils  

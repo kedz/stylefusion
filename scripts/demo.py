@@ -18,6 +18,19 @@ def print_rules(s):
             print("   ", rule_result[1])
     print()
 
+
+verb_coord = "The Sharks started the year 0 - 4, yet recovered to claim sixth spot."
+print_rules(verb_coord)
+
+coref = "Ruiz ordered his first shot to be retaken because Brazilian players entered the penalty area before his kick."
+print_rules(coref)
+
+coref = "Louis ordered his first shot to be retaken because Brazilian players entered the penalty area before his kick."
+print_rules(coref)
+
+coref = "The United States ordered its first shot to be retaken because Brazilian players entered the penalty area before its kick."
+print_rules(coref)
+
 norule = "This sentence is atomic."
 fwd_con1 = "Although the friendship somewhat healed years later, it was a devastating loss to Croly."
 fwd_con2 = "Since you arrived, she is not sure this is the way."

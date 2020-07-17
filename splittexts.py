@@ -163,6 +163,22 @@ def apply_relative_clause(s, rp, i, j):
     sentB = f'{subj} {predicate}'
     return ('relative_clause', rp), sentA, sentB
 
+def check_verb_phrase_coordination(s):
+    deps = sorted(s['basicDependencies'], key=lambda x: x['dependent'])
+    for i, t in enumerate(s['tokens']):
+        if deps[i]['dep'] == 'cc':
+            for j in range(i+1, min(i + 6, len(s['tokens']))):
+                if deps[j]['dep'] == 'conj' and s['tokens'][j]['pos'] in verbs:
+                    if deps[deps[j]['governor']-1]['dep'] == 'ROOT':
+                        k = deps[j]['governor']-1
+                        return ("verb_phrase_coordination", t['originalText']), i, k
+
+def apply_verb_phrase_coordination(s, cc, i, k):
+    A = clean_span(s, 0, i) 
+    A = fix_terminal_punctuation(A)
+    B = clean_span(s, 0, k) + " " + clean_span(s, i + 1)
+    return cc, A, B
+
 def fix_terminal_punctuation(x):
     if x[-1] in ",;":
         return x[:-1] + '.'
@@ -187,8 +203,10 @@ RULES = (
     ('intra-sentence connective', check_intrasentence_connective, apply_intrasentence_connective),
     ('cataphora', check_cataphora, apply_cataphora),
     ('conjunction', check_conjunction, apply_conjunction),
+    ('verb phrase coordination', check_verb_phrase_coordination, apply_verb_phrase_coordination),
     ('relative clause', check_relative_clause, apply_relative_clause),
     ('apposition', check_apposition, apply_apposition),
+
 )
 ORD_RULES = OrderedDict()
 for name, check, application in RULES:
@@ -198,15 +216,56 @@ class SplitTexts:
     def __init__(self, port):
         self._cnlp = StanfordCoreNLP(f'http://localhost:{port}')
    
-    def preprocess(self, text):
+    def preprocess(self, text, anaphora=False):
         properties = {
-            'annotators': 'parse,lemma', 
+            'annotators': 'parse,lemma' + (',coref' if anaphora else ''), 
             'outputFormat': 'json',
         }
         return self._cnlp.annotate(text, properties=properties)
 
-    def apply_rules(self, text):
-        data = self.preprocess(text)
+    def anaphora(self, s1, s2):
+        text = "\n".join([s1, s2])
+        data = self.preprocess(text, anaphora=True)
+
+        tags = [x['pos'] for x in data['sentences'][1]['tokens']]
+        tokens = [x['before'] + x['originalText'] for x in data['sentences'][1]['tokens']]
+        for refid in data['corefs'].keys():
+            if data['corefs'][refid][0]['sentNum'] != 1:
+                continue
+            if data['corefs'][refid][0]['type'] == 'PRONOMINAL':
+                continue
+
+            for ref in data['corefs'][refid][1:]:
+                if ref['sentNum'] != 2:
+                    continue
+                if ref['type'] != 'PRONOMINAL':
+                    continue
+                for i in range(ref['startIndex']-1, ref['endIndex']-1):
+                    tokens[i] = '@@@@'
+                
+                idx = ref['startIndex']-1
+
+                tokens[idx] = ' ' + data['corefs'][refid][0]['text']
+                if tokens[idx].startswith(' The '):
+                    tokens[idx] = ' the ' + tokens[idx][5:]
+                if tokens[idx].startswith(' A '):
+                    tokens[idx] = ' a ' + tokens[idx][3:]
+
+                if tags[idx] == 'PRP$':
+                    
+                    if tokens[idx].endswith('s'):
+                        tokens[idx] += "'"
+                    else:
+                        tokens[idx] += "'s"
+
+        tokens = [x for x in tokens if x != '@@@@'] 
+        return fix_init_capital(''.join(tokens).strip())
+            
+
+    def apply_rules(self, text, data=None):
+
+        if not data:
+            data = self.preprocess(text)
 
         results = []
 
@@ -216,10 +275,106 @@ class SplitTexts:
                 check = rule['check'](s)
                 if check:
                     result = rule['apply'](s, *check)
+                    result = result[:2] + (self.anaphora(*result[1:]),)
                     results.append(result)
+                    
                     rule_matched = True
                     break
+
             if not rule_matched:
                 results.append((None, clean_span(s, 0)))
+            
 
         return results
+
+    def recursive_apply(self, text):
+       
+        data = self.preprocess(text)
+
+
+        sents = [clean_span(x, 0) for x in data['sentences']]
+
+        from collections import OrderedDict, deque
+        results = OrderedDict()
+
+
+        queue = deque()
+
+
+        for i, sent in enumerate(sents, 1):
+            item = {
+                "text": sent,
+                "rule": None,
+                "splits": None,
+            }
+            results[i] = item
+            queue.append(item)
+
+        while queue:
+
+            item = queue.popleft()
+            r = self.apply_rules(item['text'])[0]
+            if r[0] is None:
+                continue
+            next_items = OrderedDict()
+            next_items[1] = {
+                "text": r[1],
+                "rule": None,
+                "splits": None,
+            }
+            next_items[2] = {
+                "text": r[2],
+                "rule": None,
+                "splits": None,
+            }
+            queue.append(next_items[1])
+            queue.append(next_items[2])
+            item['splits'] = next_items
+            item['rule'] = r[0]
+
+
+        return results
+
+
+
+
+
+
+
+
+
+
+        
+        
+#        [
+#            "rule": "original",
+#            "1": {
+#                "text": ".... ",
+#                "rule": "conjunction",
+#                "splits": {
+#                    "1": {
+#
+#                    },
+#                    "2": {
+#
+#
+#                    },
+#
+#                }
+#
+#
+#
+#        original
+#         
+#        print(text)
+#        print() 
+#        results = self.apply_rules(text)
+#        print("\n".join([str(r[0]) + "  " + x for r in results for x in r[1:]]))
+#        next_text = "\n".join([x for r in results for x in r[1:]])
+#        while any([x[0] for x in results]):
+#            text = next_text
+#            results = self.apply_rules(text)
+#            print("\n".join([str(r[0]) + "  " +  x for r in results for x in r[1:]]))
+#            next_text = "\n".join([x for r in results for x in r[1:]])
+#            print()
+#
